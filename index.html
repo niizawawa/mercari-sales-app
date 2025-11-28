@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>メルカリ売上管理</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+:root {
+  --bg: #f3f4f6;
+  --card: #ffffff;
+  --primary: #2563eb;
+  --green: #16a34a;
+  --purple: #7c3aed;
+  --pink: #db2777;
+  --border: #e5e7eb;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system,BlinkMacSystemFont,"Segoe UI";
+  background: var(--bg);
+  height: 100vh;
+  display: flex;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 420px auto;
+  width: 100%;
+  height: 100vh;
+}
+@media(max-width: 768px){
+  body{display:block;}
+  .layout{display:block;height:auto;}
+  .sidebar{width:100%;}
+  .main{width:100%;height:auto;}
+}
+.sidebar {
+  padding:12px;
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+  background:#fff;
+  border-right:2px solid var(--border);
+  overflow-y:auto;
+}
+header h1{font-size:1.35rem;font-weight:bold;margin:0;}
+.card {
+  background:var(--card);
+  border-radius:14px;
+  padding:16px;
+  border:1px solid var(--border);
+}
+.form-grid{display:grid;gap:10px;}
+.field input{
+  width:100%;
+  padding:10px;
+  border-radius:8px;
+  border:1px solid var(--border);
+}
+.stats{display:grid;gap:10px;}
+.stat-card{color:#fff;padding:10px;border-radius:12px;text-align:center;font-weight:bold;}
+.stat-card span{display:block;font-size:1.3rem;}
+.stat-1{background:var(--primary);}
+.stat-2{background:var(--green);}
+.stat-3{background:var(--purple);}
+.stat-4{background:var(--pink);}
+
+.main{overflow-y:auto;padding:14px;}
+table{
+  width:100%;
+  background:#fff;
+  border-collapse:collapse;
+  border-radius:14px;
+  overflow:hidden;
+}
+thead{background:var(--primary);color:#fff;}
+th,td{
+  padding:7px 10px;
+  border-bottom:1px solid var(--border);
+  white-space:nowrap;
+}
+td:first-child,th:first-child{text-align:left;}
+tr:hover{background:#f1f5f9;cursor:pointer;}
+</style>
+</head>
+
+<body>
+<div class="layout">
+
+<div class="sidebar">
+<header><h1>メルカリ売上管理</h1></header>
+
+<section class="card">
+  <div class="form-grid">
+    <div class="field"><input id="name" placeholder="商品名"></div>
+    <div class="field"><input id="price" type="number" placeholder="販売価格"></div>
+    <div class="field"><input id="feePercent" type="number" placeholder="手数料(%)"></div>
+    <div class="field"><input id="shipping" type="number" placeholder="送料"></div>
+    <div class="field"><input id="other" type="number" placeholder="他費用"></div>
+    <div class="field"><input id="date" type="date"></div>
+  </div>
+  <button id="add-row" style="width:100%;margin-top:10px;padding:10px;background:var(--primary);color:#fff;border:none;border-radius:10px;cursor:pointer;">追加入力</button>
+</section>
+
+<section class="stats">
+  <div class="stat-card stat-1">件数<span id="count">0</span></div>
+  <div class="stat-card stat-2">売上総額<span id="sum-sales">0</span></div>
+  <div class="stat-card stat-3">純利益<span id="sum-profit">0</span></div>
+  <div class="stat-card stat-4">利益率<span id="profit-rate">0%</span></div>
+</section>
+
+<section class="card" style="display:grid;gap:8px;">
+  <button id="export-csv" style="padding:10px;background:#059669;color:#fff;border:none;border-radius:10px;">💾 CSV出力</button>
+  <button id="export-xlsx" style="padding:10px;background:#7c3aed;color:#fff;border:none;border-radius:10px;">📊 Excel出力</button>
+</section>
+
+</div>
+
+
+<div class="main">
+
+<section class="card" style="margin-bottom:14px;">
+<button id="toggle-chart" style="width:100%;background:#1d4ed8;color:#fff;padding:8px;border:none;border-radius:10px;margin-bottom:10px;">
+📈 グラフ表示 / 非表示
+</button>
+<canvas id="salesChart" style="display:none;"></canvas>
+</section>
+
+<table>
+<thead>
+<tr>
+<th>商品名</th><th>価格</th><th>手数料</th><th>送料</th><th>他費用</th><th>利益</th><th>日付</th>
+</tr>
+</thead>
+<tbody id="table-body"></tbody>
+</table>
+
+</div>
+</div>
+
+
+<!-- モーダル -->
+<div id="editModal" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;">
+  <div style="background:white;padding:20px;border-radius:10px;display:grid;gap:10px;width:300px;">
+    <h3>編集</h3>
+    <input id="edit-name">
+    <input id="edit-price" type="number">
+    <input id="edit-fee" type="number">
+    <input id="edit-shipping" type="number">
+    <input id="edit-other" type="number">
+    <input id="edit-date" type="date">
+    <div style="display:flex;gap:10px;">
+      <button id="save-edit" style="flex:1;background:#2563eb;color:white;border:none;padding:10px;border-radius:8px;">保存</button>
+      <button id="delete-row" style="flex:1;background:#dc2626;color:white;border:none;padding:10px;border-radius:8px;">削除</button>
+    </div>
+    <button id="closeModal" style="background:#eee;padding:8px;border:none;border-radius:8px;">閉じる</button>
+  </div>
+</div>
+
+
+<script>
+const STORAGE_KEY="mercariSales_v5";
+let editIndex=null;
+const $=id=>document.getElementById(id);
+const yen=v=>Number(v).toLocaleString("ja-JP");
+
+const initialData=[
+["チェンソーマン",4100,10,750,0,"2025-10-14"],
+["プンプン全巻",5100,10,850,0,"2025-10-16"],
+["iPhone6",3000,10,210,0,"2025-10-17"],
+["Catcher Rye",500,10,210,0,"2025-10-17"],
+["海辺のカフカ",700,10,450,0,"2025-10-17"],
+["英検準1級",800,10,210,0,"2025-10-17"],
+["Distinction",1600,10,210,0,"2025-10-18"],
+["UX100原則",1600,10,210,0,"2025-10-19"],
+["CRIMIE",6000,10,750,0,"2025-10-20"],
+["高校生物6冊",5000,10,750,0,"2025-10-20"],
+["京大数学",980,10,210,0,"2025-10-20"],
+["WP教科書",2100,10,750,0,"2025-10-22"],
+["TOEFL270",1000,10,210,0,"2025-10-22"],
+["HTMLCSS",900,10,210,0,"2025-10-23"],
+["古文45",450,10,210,0,"2025-10-26"],
+["京大国語",980,10,210,0,"2025-10-28"],
+["Agriculture",710,10,210,0,"2025-10-30"],
+["京大英語",980,10,210,0,"2025-10-31"],
+["京大英語2",980,10,210,0,"2025-10-31"],
+["XM5ケース",1700,10,750,0,"2025-11-01"],
+["DMC HD",1200,10,210,0,"2025-11-03"],
+["英文問題精講",700,10,210,0,"2025-11-03"],
+["iPad8",19000,10,750,0,"2025-11-04"],
+["数学1対1",3400,10,750,0,"2025-11-04"],
+["理系数学",880,10,210,0,"2025-11-04"],
+["GT7",3800,10,210,0,"2025-11-11"],
+["BOSS CS3",7500,10,750,0,"2025-11-14"],
+["富士通Win11",12000,10,850,0,"2025-11-21"]
+];
+
+let data=[];
+
+function compute(d){
+const [n,p,fp,s,o,date]=d;
+const fee=Math.round(p*(fp/100));
+const profit=p-fee-s-o;
+return {name:n,price:p,fee,shipping:s,other:o,profit,date};
+}
+
+function load(){
+const saved=localStorage.getItem(STORAGE_KEY);
+data = saved ? JSON.parse(saved) : initialData.map(compute);
+render();
+}
+
+function save(){
+localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+function render(){
+data.sort((a,b)=>a.date.localeCompare(b.date));
+let tb=$("table-body");
+tb.innerHTML="";
+let ts=0,tp=0;
+
+data.forEach((r,i)=>{
+ts+=r.price;tp+=r.profit;
+tb.innerHTML+=`
+<tr data-i="${i}">
+<td>${r.name}</td><td>${yen(r.price)}</td><td>${yen(r.fee)}</td>
+<td>${yen(r.shipping)}</td><td>${yen(r.other)}</td><td>${yen(r.profit)}</td>
+<td>${r.date}</td></tr>`;
+});
+
+$("count").textContent=data.length;
+$("sum-sales").textContent=yen(ts);
+$("sum-profit").textContent=yen(tp);
+$("profit-rate").textContent= ts ? Math.round(tp/ts*100)+"%" : "0%";
+bindTableEvents();
+}
+
+function add(){
+const n=$("name").value.trim();
+const p=+$("price").value;
+const fp=+$("feePercent").value||0;
+const s=+$("shipping").value||0;
+const o=+$("other").value||0;
+const d=$("date").value;
+if(!n||!p||!d)return alert("必須！");
+data.push(compute([n,p,fp,s,o,d]));
+save();render();
+$("name").value=$("price").value=$("feePercent").value=$("shipping").value=$("other").value="";
+}
+
+function bindTableEvents(){
+document.querySelectorAll("tbody tr").forEach(tr=>{
+tr.onclick=()=>{
+editIndex=+tr.dataset.i;
+const r=data[editIndex];
+$("edit-name").value=r.name;
+$("edit-price").value=r.price;
+$("edit-fee").value=r.fee;
+$("edit-shipping").value=r.shipping;
+$("edit-other").value=r.other;
+$("edit-date").value=r.date;
+$("editModal").style.display="flex";
+};
+});
+}
+
+$("closeModal").onclick=()=>$("editModal").style.display="none";
+$("save-edit").onclick=()=>{
+let r=data[editIndex];
+r.name=$("edit-name").value;
+r.price=+$("edit-price").value;
+r.fee=+$("edit-fee").value;
+r.shipping=+$("edit-shipping").value;
+r.other=+$("edit-other").value;
+r.profit=r.price-r.fee-r.shipping-r.other;
+r.date=$("edit-date").value;
+save();render();
+$("editModal").style.display="none";
+};
+$("delete-row").onclick=()=>{
+data.splice(editIndex,1);
+save();render();
+$("editModal").style.display="none";
+};
+
+$("add-row").onclick=add;
+
+let chartInstance=null;
+function renderChart(){
+const ctx=$("salesChart");
+const ms={},mp={};
+for(const r of data){
+const ym=r.date.slice(0,7);
+ms[ym]=(ms[ym]||0)+r.price;
+mp[ym]=(mp[ym]||0)+r.profit;
+}
+const labels=Object.keys(ms),sales=labels.map(l=>ms[l]),profits=labels.map(l=>mp[l]);
+if(chartInstance)chartInstance.destroy();
+chartInstance=new Chart(ctx,{
+type:"line",
+data:{labels,datasets:[
+{label:"売上",borderColor:"#2563eb",data:sales},
+{label:"利益",borderColor:"#16a34a",data:profits}
+]},
+options:{plugins:{legend:{position:"bottom"}}}
+});
+}
+
+$("toggle-chart").onclick=()=>{
+const cv=$("salesChart");
+const show=cv.style.display!=="block";
+cv.style.display=show?"block":"none";
+if(show)renderChart();
+};
+
+$("export-csv").onclick=()=>{
+let csv="商品名,価格,手数料,送料,他費用,利益,日付\n";
+data.forEach(r=>csv+=`${r.name},${r.price},${r.fee},${r.shipping},${r.other},${r.profit},${r.date}\n`);
+const blob=new Blob(["\ufeff"+csv],{type:"text/csv"});
+const a=document.createElement("a");
+a.href=URL.createObjectURL(blob);a.download="sales.csv";a.click();
+};
+$("export-xlsx").onclick=()=>{
+const rows=[["商品名","価格","手数料","送料","他費用","利益","日付"]];
+data.forEach(r=>rows.push([r.name,r.price,r.fee,r.shipping,r.other,r.profit,r.date]));
+const ws=XLSX.utils.aoa_to_sheet(rows);
+const wb=XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(wb,ws,"Sales");
+XLSX.writeFile(wb,"sales.xlsx");
+};
+
+document.addEventListener("DOMContentLoaded",load);
+</script>
+
+</body></html>
+
